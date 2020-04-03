@@ -1,7 +1,7 @@
 package main
 
 import (
-	"sniffer/router"
+	"goblin-go/router"
 )
 
 func main() {

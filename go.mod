@@ -1,4 +1,4 @@
-module sniffer
+module goblin-go
 
 go 1.14
 

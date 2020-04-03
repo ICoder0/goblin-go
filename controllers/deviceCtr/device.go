@@ -5,8 +5,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/gopacket/pcap"
-	"sniffer/controllers"
-	"sniffer/service/deviceSv"
+	"goblin-go/controllers"
+	"goblin-go/service/deviceSv"
 )
 
 func FindAllDevice(ctx *gin.Context) {

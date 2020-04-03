@@ -2,8 +2,8 @@ package router
 
 import (
 	"github.com/gin-gonic/gin"
-	"sniffer/controllers/deviceCtr"
-	"sniffer/controllers/packetCtr"
+	"goblin-go/controllers/deviceCtr"
+	"goblin-go/controllers/packetCtr"
 )
 
 func Start() {

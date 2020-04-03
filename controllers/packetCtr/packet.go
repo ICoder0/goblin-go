@@ -8,8 +8,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	"sniffer/controllers"
-	"sniffer/service/packetSv"
+	"goblin-go/controllers"
+	"goblin-go/service/packetSv"
 )
 
 var packetChan chan *packetSv.Packet
