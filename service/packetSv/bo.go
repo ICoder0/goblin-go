@@ -1,5 +1,10 @@
 package packetSv
 
+import (
+	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
+)
+
 type Packet struct {
 	Time                   string
 	Payload                string
@@ -14,4 +19,22 @@ type StartCaptureBo struct {
 	Duration   int64
 	Device     string
 	BPF        string
+	Transfer   *Transfer
+}
+
+type Transfer struct {
+	Flag             bool
+	SrcMAC, DstMAC   string
+	SrcIP, DstIP     string
+	SrcPort, DstPort uint16
+}
+
+type Layers struct {
+	Loopback *layers.Loopback
+	Ethernet *layers.Ethernet
+	IPv4     *layers.IPv4
+	IPv6     *layers.IPv6
+	TCP      *layers.TCP
+	UDP      *layers.UDP
+	Payload  *gopacket.Payload
 }

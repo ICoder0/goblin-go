@@ -43,6 +43,15 @@ func Capture(ctx *gin.Context) {
 		Duration:   form.Duration,
 		Device:     form.Device,
 		BPF:        form.BPF,
+		Transfer: &packetSv.Transfer{
+			Flag:    form.IsTransfer,
+			SrcMAC:  "",
+			DstMAC:  "",
+			SrcIP:   "",
+			DstIP:   form.DstIP,
+			SrcPort: 0,
+			DstPort: form.DstPort,
+		},
 	}
 	if err = packetSv.StartCapture(ctx.Copy().Request.Context(), startCaptureBo); err != nil {
 		ctx.JSON(http.StatusOK, controllers.Response{

@@ -3,6 +3,8 @@ package packetSv
 import (
 	"context"
 	"fmt"
+	"net"
+	"strconv"
 	"time"
 
 	"github.com/google/gopacket"
@@ -20,65 +22,72 @@ func StartCapture(ctx context.Context, bo *StartCaptureBo) (err error) {
 		for {
 			bo.Duration--
 			if bo.Duration == 0 {
-				StopCapture()
+				stopCapture()
 				break
 			}
 			time.Sleep(1 * time.Second)
 		}
 	}()
 
-	if handle, err = pcap.OpenLive(bo.Device, 1600, true, pcap.BlockForever); err != nil {
+	if handle, err = pcap.OpenLive(bo.Device, 65535, true, pcap.BlockForever); err != nil {
 		panic(err)
 	} else if err = handle.SetBPFFilter(bo.BPF); err != nil {
-		StopCapture()
+		stopCapture()
 		panic(err)
 	} else {
-
-		fmt.Println("--------------------------------------------------------------------------")
-
+		fmt.Println("-------------------开始嗅探------------------")
+		// 获取数据包管道
 		packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
-
+		// 获取数据包
 		go func() {
 			for packet := range packetSource.Packets() {
 				var (
-					pkt                                                 *Packet
-					ethernet                                            *layers.Ethernet
-					ip4Packet                                           *layers.IPv4
-					ip6Packet                                           *layers.IPv6
-					tcpPacket                                           *layers.TCP
-					udpPacket                                           *layers.UDP
-					linkLayertype, networkLayertype, transportLayertype gopacket.LayerType
+					pkt      *Packet
+					ethernet *layers.Ethernet
+					loopback *layers.Loopback
+					ipv4     *layers.IPv4
+					ipv6     *layers.IPv6
+					tcp      *layers.TCP
+					udp      *layers.UDP
+					payload  *gopacket.Payload
 				)
 
 				pkt = new(Packet)
 				pkt.Time = time.Now().Format("2006-01-02 15:04:05")
 
-				if packet.LinkLayer() != nil {
-					linkLayertype = packet.LinkLayer().LayerType()
-					switch linkLayertype.String() {
+				for _, l := range packet.Layers() {
+					switch l.LayerType().String() {
 					case "Ethernet":
-						ethernet, _ = packet.Layer(linkLayertype).(*layers.Ethernet)
-					}
-				}
-
-				if packet.NetworkLayer() != nil {
-					networkLayertype = packet.NetworkLayer().LayerType()
-					switch networkLayertype.String() {
+						ethernet, _ = l.(*layers.Ethernet)
+					case "Loopback":
+						loopback, _ = l.(*layers.Loopback)
 					case "IPv4":
-						ip4Packet, _ = packet.Layer(networkLayertype).(*layers.IPv4)
+						ipv4, _ = l.(*layers.IPv4)
 					case "IPv6":
-						ip6Packet, _ = packet.Layer(networkLayertype).(*layers.IPv6)
+						ipv6, _ = l.(*layers.IPv6)
+					case "TCP":
+						tcp, _ = l.(*layers.TCP)
+					case "UDP":
+						udp, _ = l.(*layers.UDP)
+					case "Payload":
+						payload, _ = l.(*gopacket.Payload)
 					}
+
 				}
 
-				if packet.TransportLayer() != nil {
-					transportLayertype = packet.TransportLayer().LayerType()
-					switch transportLayertype.String() {
-					case "TCP":
-						tcpPacket, _ = packet.Layer(transportLayertype).(*layers.TCP)
-					case "UDP":
-						udpPacket, _ = packet.Layer(transportLayertype).(*layers.UDP)
-					}
+				lys := &Layers{
+					Loopback: loopback,
+					Ethernet: ethernet,
+					IPv4:     ipv4,
+					IPv6:     ipv6,
+					TCP:      tcp,
+					UDP:      udp,
+					Payload:  payload,
+				}
+
+				// 转发
+				if bo.Transfer.Flag {
+					transfer(bo.Transfer, lys)
 				}
 
 				if ethernet != nil {
@@ -86,43 +95,55 @@ func StartCapture(ctx context.Context, bo *StartCaptureBo) (err error) {
 					pkt.DstMAC = ethernet.DstMAC.String()
 				}
 
-				if ip4Packet != nil {
-					pkt.SrcAddress = ip4Packet.SrcIP.String()
-					pkt.DstAddress = ip4Packet.DstIP.String()
-				} else if ip6Packet != nil {
-					pkt.SrcAddress = ip6Packet.SrcIP.String()
-					pkt.DstAddress = ip6Packet.DstIP.String()
+				if ipv4 != nil {
+					pkt.SrcAddress = ipv4.SrcIP.String()
+					pkt.DstAddress = ipv4.DstIP.String()
+				} else if ipv6 != nil {
+					pkt.SrcAddress = ipv6.SrcIP.String()
+					pkt.DstAddress = ipv6.DstIP.String()
 				}
 
-				if tcpPacket != nil {
-					tcpPacket.Seq = 1
-					pkt.Seq = tcpPacket.Seq
-					pkt.Ack = tcpPacket.Ack
-					pkt.FIN = tcpPacket.FIN
-					pkt.SYN = tcpPacket.SYN
-					pkt.ACK = tcpPacket.ACK
-					pkt.Payload = string(tcpPacket.Payload)
-					pkt.SrcAddress += ":" + tcpPacket.SrcPort.String()
-					pkt.DstAddress += ":" + tcpPacket.DstPort.String()
-				} else if udpPacket != nil {
+				if tcp != nil {
+					tcp.Seq = 1
+					pkt.Seq = tcp.Seq
+					pkt.Ack = tcp.Ack
+					pkt.FIN = tcp.FIN
+					pkt.SYN = tcp.SYN
+					pkt.ACK = tcp.ACK
+					pkt.Payload = string(tcp.Payload)
+					pkt.SrcAddress += ":" + tcp.SrcPort.String()
+					pkt.DstAddress += ":" + tcp.DstPort.String()
+				} else if udp != nil {
 
 				}
-
 				bo.PacketChan <- pkt
 			}
 		}()
+
 	}
 
 	return nil
 }
 
 // StopCapture 停止抓包
-func StopCapture() {
+func stopCapture() {
 	handle.Close()
 	fmt.Println("-------------------停止嗅探------------------")
 }
 
-// Forward 转发
-func Forward(ctx context.Context) {
-
+func transfer(tsf *Transfer, lys *Layers) {
+	if lys.TCP.PSH {
+		conn, err := net.Dial("tcp", tsf.DstIP+":"+strconv.Itoa(int(tsf.DstPort)))
+		if err != nil {
+			fmt.Println("创建连接失败：", err.Error())
+		} else {
+			_, err = conn.Write(lys.TCP.Payload)
+			if err != nil {
+				fmt.Println("转发失败：", err.Error())
+			} else {
+				fmt.Println("转发成功")
+			}
+			_ = conn.Close()
+		}
+	}
 }
